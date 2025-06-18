@@ -30,6 +30,7 @@ use super::to_datafusion_error;
 pub struct PostgresWriteConfig {
     pub batch_flush_interval: Duration,
     pub batch_size: usize,
+    pub num_records_before_stop: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -93,11 +94,11 @@ impl TableProvider for PostgresTableWriter {
         input: Arc<dyn ExecutionPlan>,
         op: InsertOp,
     ) -> datafusion::error::Result<Arc<dyn ExecutionPlan>> {
-        let (batch_flush_interval, batch_size) =
+        let (batch_flush_interval, batch_size, num_records_before_stop) =
             if let Some(ext) = state.config().get_extension::<PostgresWriteConfig>() {
-                (ext.batch_flush_interval, ext.batch_size)
+                (ext.batch_flush_interval, ext.batch_size, ext.num_records_before_stop)
             } else {
-                (Duration::from_secs(1), 1_000_000)
+                (Duration::from_secs(1), 1_000_000, None)
             };
 
         Ok(Arc::new(DataSinkExec::new(
@@ -109,6 +110,7 @@ impl TableProvider for PostgresTableWriter {
                 self.schema(),
                 batch_flush_interval,
                 batch_size,
+                num_records_before_stop,
             )),
             None,
         )) as _)
@@ -123,6 +125,7 @@ struct PostgresDataSink {
     schema: SchemaRef,
     batch_flush_interval: Duration,
     batch_size: usize,
+    num_records_before_stop: Option<u64>,
 }
 
 #[async_trait]
@@ -226,6 +229,21 @@ impl DataSink for PostgresDataSink {
                 continue;
             };
 
+            // Check if we've reached the record limit before processing this batch
+            if let Some(max_records) = self.num_records_before_stop {
+                if num_rows + batch_num_rows as u64 > max_records {
+                    // Truncate the batch to only include records up to the limit
+                    let records_to_take = (max_records - num_rows) as usize;
+                    if records_to_take > 0 {
+                        let truncated_batch = batch.slice(0, records_to_take);
+                        batches_buffer.push(truncated_batch);
+                        buffer_row_count += records_to_take;
+                    }
+                    // Force flush and exit
+                    break;
+                }
+            }
+
             batches_buffer.push(batch);
             buffer_row_count += batch_num_rows;
 
@@ -265,6 +283,13 @@ impl DataSink for PostgresDataSink {
                 batches_buffer.clear();
                 buffer_row_count = 0;
                 last_flush_time = std::time::Instant::now();
+
+                // Check if we've reached the record limit after flushing
+                if let Some(max_records) = self.num_records_before_stop {
+                    if num_rows >= max_records {
+                        break;
+                    }
+                }
             }
         }
 
@@ -312,6 +337,7 @@ impl PostgresDataSink {
         schema: SchemaRef,
         batch_flush_interval: Duration,
         batch_size: usize,
+        num_records_before_stop: Option<u64>,
     ) -> Self {
         Self {
             postgres,
@@ -320,6 +346,7 @@ impl PostgresDataSink {
             schema,
             batch_flush_interval,
             batch_size,
+            num_records_before_stop,
         }
     }
 }
