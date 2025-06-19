@@ -31,7 +31,7 @@ use datafusion::{
 };
 use postgres_native_tls::MakeTlsConnector;
 use snafu::prelude::*;
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use crate::util::{
     self,
@@ -177,7 +177,18 @@ impl PostgresTableFactory {
             Constraints::empty(),
         );
 
-        Ok(PostgresTableWriter::create(read_provider, postgres, None))
+        let default_write_config = write::PostgresWriteConfig {
+            batch_flush_interval: Duration::from_secs(1),
+            batch_size: 1_000_000,
+            num_records_before_stop: None,
+        };
+
+        Ok(PostgresTableWriter::create(
+            read_provider,
+            postgres,
+            None,
+            default_write_config,
+        ))
     }
 }
 
@@ -201,7 +212,7 @@ impl Default for PostgresTableProviderFactory {
 impl TableProviderFactory for PostgresTableProviderFactory {
     async fn create(
         &self,
-        _state: &dyn Session,
+        state: &dyn Session,
         cmd: &CreateExternalTable,
     ) -> DataFusionResult<Arc<dyn TableProvider>> {
         let name = cmd.name.clone();
@@ -302,10 +313,22 @@ impl TableProviderFactory for PostgresTableProviderFactory {
         #[cfg(feature = "postgres-federation")]
         let read_provider = Arc::new(read_provider.create_federated_table_provider()?);
 
+        // Extract PostgresWriteConfig from session or use defaults
+        let write_config = state
+            .config()
+            .get_extension::<write::PostgresWriteConfig>()
+            .map(|ext| (*ext).clone())
+            .unwrap_or_else(|| write::PostgresWriteConfig {
+                batch_flush_interval: Duration::from_secs(1),
+                batch_size: 1_000_000,
+                num_records_before_stop: None,
+            });
+
         Ok(PostgresTableWriter::create(
             read_provider,
             postgres,
             on_conflict,
+            write_config,
         ))
     }
 }
@@ -442,7 +465,7 @@ impl Postgres {
         primary_keys: Vec<String>,
     ) -> Result<()> {
         tracing::info!("Creating table: {:?}", self.table);
-        
+
         // Create schema if it doesn't exist
         if let Some(schema_name) = self.table.schema() {
             let create_schema_stmt = format!("CREATE SCHEMA IF NOT EXISTS {}", schema_name);

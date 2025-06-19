@@ -38,6 +38,7 @@ pub struct PostgresTableWriter {
     pub read_provider: Arc<dyn TableProvider>,
     postgres: Arc<Postgres>,
     on_conflict: Option<OnConflict>,
+    pub write_config: PostgresWriteConfig,
 }
 
 impl PostgresTableWriter {
@@ -45,11 +46,13 @@ impl PostgresTableWriter {
         read_provider: Arc<dyn TableProvider>,
         postgres: Postgres,
         on_conflict: Option<OnConflict>,
+        write_config: PostgresWriteConfig,
     ) -> Arc<Self> {
         Arc::new(Self {
             read_provider,
             postgres: Arc::new(postgres),
             on_conflict,
+            write_config,
         })
     }
 
@@ -90,25 +93,15 @@ impl TableProvider for PostgresTableWriter {
 
     async fn insert_into(
         &self,
-        state: &dyn Session,
+        _state: &dyn Session,
         input: Arc<dyn ExecutionPlan>,
         op: InsertOp,
     ) -> datafusion::error::Result<Arc<dyn ExecutionPlan>> {
-        tracing::info!(
-            "Inserting into Postgres {:?}",
-            state.config()
+        let (batch_flush_interval, batch_size, num_records_before_stop) = (
+            self.write_config.batch_flush_interval,
+            self.write_config.batch_size,
+            self.write_config.num_records_before_stop,
         );
-        let (batch_flush_interval, batch_size, num_records_before_stop) =
-            if let Some(ext) = state.config().get_extension::<PostgresWriteConfig>() {
-                (
-                    ext.batch_flush_interval,
-                    ext.batch_size,
-                    ext.num_records_before_stop,
-                )
-            } else {
-                (Duration::from_secs(1), 1_000_000, None)
-            };
-        tracing::info!("Inserting into Postgres with batch flush interval: {:?}, batch size: {}, num records before stop: {:?}", batch_flush_interval, batch_size, num_records_before_stop);
 
         Ok(Arc::new(DataSinkExec::new(
             input,

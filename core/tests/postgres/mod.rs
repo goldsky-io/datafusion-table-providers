@@ -15,7 +15,9 @@ use datafusion::{
 use datafusion_federation::schema_cast::record_convert::try_cast_to;
 
 use datafusion_table_providers::{
-    postgres::{DynPostgresConnectionPool, PostgresTableProviderFactory},
+    postgres::{
+        write::PostgresTableWriter, DynPostgresConnectionPool, PostgresTableProviderFactory,
+    },
     sql::sql_provider_datafusion::SqlTable,
     UnsupportedTypeAction,
 };
@@ -289,11 +291,7 @@ async fn test_postgres_jsonb_type(port: usize) {
     ('{"nested": {"key": "value"}}');
     "#;
 
-    let schema = Arc::new(Schema::new(vec![Field::new(
-        "data",
-        DataType::Utf8,
-        true,
-    )]));
+    let schema = Arc::new(Schema::new(vec![Field::new("data", DataType::Utf8, true)]));
 
     // Parse and re-serialize the JSON to ensure consistent ordering
     let expected_values = vec![
@@ -314,9 +312,7 @@ async fn test_postgres_jsonb_type(port: usize) {
 
     let expected_record = RecordBatch::try_new(
         Arc::clone(&schema),
-        vec![Arc::new(arrow::array::StringArray::from(
-            expected_values,
-        ))],
+        vec![Arc::new(arrow::array::StringArray::from(expected_values))],
     )
     .expect("Failed to create arrow record batch");
 
@@ -407,19 +403,19 @@ async fn test_postgres_num_records_before_stop(container_manager: &Mutex<Contain
 }
 
 async fn test_num_records_before_stop_exact_limit(port: usize) {
-    use datafusion_table_providers::postgres::write::PostgresWriteConfig;
     use datafusion::execution::config::SessionConfig;
+    use datafusion_table_providers::postgres::write::PostgresWriteConfig;
     use std::time::Duration;
 
     let factory = PostgresTableProviderFactory::new();
-    
+
     // Configure to stop at exactly 3 records
     let write_config = PostgresWriteConfig {
         batch_flush_interval: Duration::from_secs(1),
         batch_size: 1000,
         num_records_before_stop: Some(3),
     };
-    
+
     let config = SessionConfig::new().with_extension(Arc::new(write_config));
     let ctx = SessionContext::new_with_config(config);
 
@@ -451,16 +447,16 @@ async fn test_num_records_before_stop_exact_limit(port: usize) {
         .expect("table provider created");
 
     // Create 5 records but should only insert 3
-    let batches = vec![
-        RecordBatch::try_new(
-            Arc::clone(&schema),
-            vec![
-                Arc::new(arrow::array::Int32Array::from(vec![1, 2, 3, 4, 5])),
-                Arc::new(arrow::array::StringArray::from(vec!["a", "b", "c", "d", "e"])),
-            ],
-        )
-        .expect("batch created"),
-    ];
+    let batches = vec![RecordBatch::try_new(
+        Arc::clone(&schema),
+        vec![
+            Arc::new(arrow::array::Int32Array::from(vec![1, 2, 3, 4, 5])),
+            Arc::new(arrow::array::StringArray::from(vec![
+                "a", "b", "c", "d", "e",
+            ])),
+        ],
+    )
+    .expect("batch created")];
 
     let mem_exec = MemorySourceConfig::try_new_exec(&[batches], Arc::clone(&schema), None)
         .expect("memory exec created");
@@ -477,34 +473,41 @@ async fn test_num_records_before_stop_exact_limit(port: usize) {
     // Should return exactly 3 rows inserted
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].num_rows(), 1);
-    let count_array = result[0].column(0).as_any().downcast_ref::<arrow::array::UInt64Array>().unwrap();
+    let count_array = result[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<arrow::array::UInt64Array>()
+        .unwrap();
     assert_eq!(count_array.value(0), 3);
 
     // The write operation correctly returned 3, which means num_records_before_stop worked
-    // Additional verification would require setting up a separate read-only context
+    // Verify that the PostgresTableWriter has the correct configuration
+    let writer = table_provider
+        .as_any()
+        .downcast_ref::<PostgresTableWriter>()
+        .expect("should be PostgresTableWriter");
+    assert_eq!(writer.write_config.num_records_before_stop, Some(3));
 }
 
 async fn test_num_records_before_stop_partial_batch(port: usize) {
-    use datafusion_table_providers::postgres::write::PostgresWriteConfig;
     use datafusion::execution::config::SessionConfig;
+    use datafusion_table_providers::postgres::write::PostgresWriteConfig;
     use std::time::Duration;
 
     let factory = PostgresTableProviderFactory::new();
-    
+
     // Configure to stop at 2 records with small batch size
     let write_config = PostgresWriteConfig {
         batch_flush_interval: Duration::from_secs(1),
         batch_size: 2,
         num_records_before_stop: Some(2),
     };
-    
+
     let config = SessionConfig::new().with_extension(Arc::new(write_config));
     let ctx = SessionContext::new_with_config(config);
 
     let table_name = "test_partial_batch";
-    let schema = Arc::new(Schema::new(vec![
-        Field::new("id", DataType::Int32, false),
-    ]));
+    let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int32, false)]));
 
     let cmd = CreateExternalTable {
         schema: Arc::new(schema.clone().to_dfschema().expect("to df schema")),
@@ -528,13 +531,11 @@ async fn test_num_records_before_stop_partial_batch(port: usize) {
         .expect("table provider created");
 
     // Create 4 records in a single batch, should truncate to 2
-    let batches = vec![
-        RecordBatch::try_new(
-            Arc::clone(&schema),
-            vec![Arc::new(arrow::array::Int32Array::from(vec![1, 2, 3, 4]))],
-        )
-        .expect("batch created"),
-    ];
+    let batches = vec![RecordBatch::try_new(
+        Arc::clone(&schema),
+        vec![Arc::new(arrow::array::Int32Array::from(vec![1, 2, 3, 4]))],
+    )
+    .expect("batch created")];
 
     let mem_exec = MemorySourceConfig::try_new_exec(&[batches], Arc::clone(&schema), None)
         .expect("memory exec created");
@@ -549,31 +550,33 @@ async fn test_num_records_before_stop_partial_batch(port: usize) {
         .expect("insert done");
 
     // Should return exactly 2 rows inserted
-    let count_array = result[0].column(0).as_any().downcast_ref::<arrow::array::UInt64Array>().unwrap();
+    let count_array = result[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<arrow::array::UInt64Array>()
+        .unwrap();
     assert_eq!(count_array.value(0), 2);
 }
 
 async fn test_num_records_before_stop_multiple_batches(port: usize) {
-    use datafusion_table_providers::postgres::write::PostgresWriteConfig;
     use datafusion::execution::config::SessionConfig;
+    use datafusion_table_providers::postgres::write::PostgresWriteConfig;
     use std::time::Duration;
 
     let factory = PostgresTableProviderFactory::new();
-    
+
     // Configure to stop at 5 records with batch size of 2
     let write_config = PostgresWriteConfig {
         batch_flush_interval: Duration::from_secs(1),
         batch_size: 2,
         num_records_before_stop: Some(5),
     };
-    
+
     let config = SessionConfig::new().with_extension(Arc::new(write_config));
     let ctx = SessionContext::new_with_config(config);
 
     let table_name = "test_multiple_batches";
-    let schema = Arc::new(Schema::new(vec![
-        Field::new("id", DataType::Int32, false),
-    ]));
+    let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int32, false)]));
 
     let cmd = CreateExternalTable {
         schema: Arc::new(schema.clone().to_dfschema().expect("to df schema")),
@@ -628,7 +631,11 @@ async fn test_num_records_before_stop_multiple_batches(port: usize) {
         .expect("insert done");
 
     // Should return exactly 5 rows inserted
-    let count_array = result[0].column(0).as_any().downcast_ref::<arrow::array::UInt64Array>().unwrap();
+    let count_array = result[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<arrow::array::UInt64Array>()
+        .unwrap();
     assert_eq!(count_array.value(0), 5);
 
     // The write operation correctly returned 5, which means num_records_before_stop worked correctly

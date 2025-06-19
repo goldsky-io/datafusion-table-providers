@@ -130,7 +130,7 @@ impl CreateTableBuilder {
         map_data_type_to_column_type_fn: &dyn Fn(&Arc<Field>) -> ColumnType,
     ) -> String {
         let mut create_stmt = Table::create();
-        
+
         // Handle schema.table or just table
         let table_ref = if let Some(schema_name) = &self.schema_name {
             TableRef::SchemaTable(
@@ -140,10 +140,8 @@ impl CreateTableBuilder {
         } else {
             TableRef::Table(SeaRc::new(Alias::new(self.table_name.clone())))
         };
-        
-        create_stmt
-            .table(table_ref)
-            .if_not_exists();
+
+        create_stmt.table(table_ref).if_not_exists();
 
         for field in self.schema.fields() {
             let column_type = map_data_type_to_column_type_fn(field);
