@@ -94,12 +94,21 @@ impl TableProvider for PostgresTableWriter {
         input: Arc<dyn ExecutionPlan>,
         op: InsertOp,
     ) -> datafusion::error::Result<Arc<dyn ExecutionPlan>> {
+        tracing::info!(
+            "Inserting into Postgres {:?}",
+            state.config()
+        );
         let (batch_flush_interval, batch_size, num_records_before_stop) =
             if let Some(ext) = state.config().get_extension::<PostgresWriteConfig>() {
-                (ext.batch_flush_interval, ext.batch_size, ext.num_records_before_stop)
+                (
+                    ext.batch_flush_interval,
+                    ext.batch_size,
+                    ext.num_records_before_stop,
+                )
             } else {
                 (Duration::from_secs(1), 1_000_000, None)
             };
+        tracing::info!("Inserting into Postgres with batch flush interval: {:?}, batch size: {}, num records before stop: {:?}", batch_flush_interval, batch_size, num_records_before_stop);
 
         Ok(Arc::new(DataSinkExec::new(
             input,
@@ -225,15 +234,22 @@ impl DataSink for PostgresDataSink {
 
             let batch_num_rows = batch.num_rows();
 
-            if batch_num_rows == 0 {
-                continue;
-            };
+            tracing::debug!(
+                "Processing batch with {} rows. max_row_count: {:?}",
+                batch_num_rows,
+                self.num_records_before_stop
+            );
 
             // Check if we've reached the record limit before processing this batch
             if let Some(max_records) = self.num_records_before_stop {
-                if num_rows + batch_num_rows as u64 > max_records {
+                if batch_num_rows == 0 && num_rows < max_records {
+                    continue;
+                };
+
+                if num_rows + batch_num_rows as u64 >= max_records {
                     // Truncate the batch to only include records up to the limit
                     let records_to_take = (max_records - num_rows) as usize;
+                    tracing::debug!("Truncating batch to {} rows", records_to_take);
                     if records_to_take > 0 {
                         let truncated_batch = batch.slice(0, records_to_take);
                         batches_buffer.push(truncated_batch);
@@ -323,12 +339,11 @@ impl DataSink for PostgresDataSink {
                 .map_err(to_datafusion_error)?;
 
             num_rows += buffer_row_count as u64;
-            
+            tracing::debug!("flushed final {} rows", num_rows);
+
             // Ensure we don't exceed the limit even in final flush
             if let Some(max_records) = self.num_records_before_stop {
-                if num_rows > max_records {
-                    num_rows = max_records;
-                }
+                assert_eq!(num_rows, max_records);
             }
         }
 
