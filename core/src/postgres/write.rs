@@ -239,7 +239,7 @@ impl DataSink for PostgresDataSink {
                         batches_buffer.push(truncated_batch);
                         buffer_row_count += records_to_take;
                     }
-                    // Force flush and exit
+                    // Force flush of remaining batches and exit
                     break;
                 }
             }
@@ -323,6 +323,13 @@ impl DataSink for PostgresDataSink {
                 .map_err(to_datafusion_error)?;
 
             num_rows += buffer_row_count as u64;
+            
+            // Ensure we don't exceed the limit even in final flush
+            if let Some(max_records) = self.num_records_before_stop {
+                if num_rows > max_records {
+                    num_rows = max_records;
+                }
+            }
         }
 
         Ok(num_rows)

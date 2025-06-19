@@ -391,3 +391,252 @@ async fn arrow_postgres_one_way(
 
     assert_eq!(record_batch[0], expected_record);
 }
+
+#[rstest]
+#[test_log::test(tokio::test)]
+async fn test_postgres_num_records_before_stop(container_manager: &Mutex<ContainerManager>) {
+    let mut container_manager = container_manager.lock().await;
+    if !container_manager.claimed {
+        container_manager.claimed = true;
+        start_container(&mut container_manager).await;
+    }
+
+    test_num_records_before_stop_exact_limit(container_manager.port).await;
+    test_num_records_before_stop_partial_batch(container_manager.port).await;
+    test_num_records_before_stop_multiple_batches(container_manager.port).await;
+}
+
+async fn test_num_records_before_stop_exact_limit(port: usize) {
+    use datafusion_table_providers::postgres::write::PostgresWriteConfig;
+    use std::time::Duration;
+
+    let factory = PostgresTableProviderFactory::new();
+    let ctx = SessionContext::new();
+    
+    // Configure to stop at exactly 3 records
+    let write_config = PostgresWriteConfig {
+        batch_flush_interval: Duration::from_secs(1),
+        batch_size: 1000,
+        num_records_before_stop: Some(3),
+    };
+    ctx.state().config_mut().set_extension(Arc::new(write_config));
+
+    let table_name = "test_exact_limit";
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("id", DataType::Int32, false),
+        Field::new("name", DataType::Utf8, true),
+    ]));
+
+    let cmd = CreateExternalTable {
+        schema: Arc::new(schema.to_dfschema().expect("to df schema")),
+        name: table_name.into(),
+        location: "".to_string(),
+        file_type: "".to_string(),
+        table_partition_cols: vec![],
+        if_not_exists: false,
+        definition: None,
+        order_exprs: vec![],
+        unbounded: false,
+        options: common::get_pg_params(port),
+        constraints: Constraints::empty(),
+        column_defaults: HashMap::new(),
+        temporary: false,
+    };
+
+    let table_provider = factory
+        .create(&ctx.state(), &cmd)
+        .await
+        .expect("table provider created");
+
+    // Create 5 records but should only insert 3
+    let batches = vec![
+        RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![
+                Arc::new(arrow::array::Int32Array::from(vec![1, 2, 3, 4, 5])),
+                Arc::new(arrow::array::StringArray::from(vec!["a", "b", "c", "d", "e"])),
+            ],
+        )
+        .expect("batch created"),
+    ];
+
+    let mem_exec = MemorySourceConfig::try_new_exec(&[batches], Arc::clone(&schema), None)
+        .expect("memory exec created");
+
+    let insert_plan = table_provider
+        .insert_into(&ctx.state(), mem_exec, InsertOp::Append)
+        .await
+        .expect("insert plan created");
+
+    let result = collect(insert_plan, ctx.task_ctx())
+        .await
+        .expect("insert done");
+
+    // Should return exactly 3 rows inserted
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].num_rows(), 1);
+    let count_array = result[0].column(0).as_any().downcast_ref::<arrow::array::UInt64Array>().unwrap();
+    assert_eq!(count_array.value(0), 3);
+
+    // Verify only 3 records were actually inserted
+    ctx.register_table(table_name, table_provider)
+        .expect("table registered");
+    
+    let df = ctx.sql(&format!("SELECT COUNT(*) FROM {table_name}")).await.expect("count query");
+    let count_result = df.collect().await.expect("count result");
+    let count_val = count_result[0].column(0).as_any().downcast_ref::<arrow::array::Int64Array>().unwrap().value(0);
+    assert_eq!(count_val, 3);
+}
+
+async fn test_num_records_before_stop_partial_batch(port: usize) {
+    use datafusion_table_providers::postgres::write::PostgresWriteConfig;
+    use std::time::Duration;
+
+    let factory = PostgresTableProviderFactory::new();
+    let ctx = SessionContext::new();
+    
+    // Configure to stop at 2 records with small batch size
+    let write_config = PostgresWriteConfig {
+        batch_flush_interval: Duration::from_secs(1),
+        batch_size: 2,
+        num_records_before_stop: Some(2),
+    };
+    ctx.state().config_mut().set_extension(Arc::new(write_config));
+
+    let table_name = "test_partial_batch";
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("id", DataType::Int32, false),
+    ]));
+
+    let cmd = CreateExternalTable {
+        schema: Arc::new(schema.to_dfschema().expect("to df schema")),
+        name: table_name.into(),
+        location: "".to_string(),
+        file_type: "".to_string(),
+        table_partition_cols: vec![],
+        if_not_exists: false,
+        definition: None,
+        order_exprs: vec![],
+        unbounded: false,
+        options: common::get_pg_params(port),
+        constraints: Constraints::empty(),
+        column_defaults: HashMap::new(),
+        temporary: false,
+    };
+
+    let table_provider = factory
+        .create(&ctx.state(), &cmd)
+        .await
+        .expect("table provider created");
+
+    // Create 4 records in a single batch, should truncate to 2
+    let batches = vec![
+        RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![Arc::new(arrow::array::Int32Array::from(vec![1, 2, 3, 4]))],
+        )
+        .expect("batch created"),
+    ];
+
+    let mem_exec = MemorySourceConfig::try_new_exec(&[batches], Arc::clone(&schema), None)
+        .expect("memory exec created");
+
+    let insert_plan = table_provider
+        .insert_into(&ctx.state(), mem_exec, InsertOp::Append)
+        .await
+        .expect("insert plan created");
+
+    let result = collect(insert_plan, ctx.task_ctx())
+        .await
+        .expect("insert done");
+
+    // Should return exactly 2 rows inserted
+    let count_array = result[0].column(0).as_any().downcast_ref::<arrow::array::UInt64Array>().unwrap();
+    assert_eq!(count_array.value(0), 2);
+}
+
+async fn test_num_records_before_stop_multiple_batches(port: usize) {
+    use datafusion_table_providers::postgres::write::PostgresWriteConfig;
+    use std::time::Duration;
+
+    let factory = PostgresTableProviderFactory::new();
+    let ctx = SessionContext::new();
+    
+    // Configure to stop at 5 records with batch size of 2
+    let write_config = PostgresWriteConfig {
+        batch_flush_interval: Duration::from_secs(1),
+        batch_size: 2,
+        num_records_before_stop: Some(5),
+    };
+    ctx.state().config_mut().set_extension(Arc::new(write_config));
+
+    let table_name = "test_multiple_batches";
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("id", DataType::Int32, false),
+    ]));
+
+    let cmd = CreateExternalTable {
+        schema: Arc::new(schema.to_dfschema().expect("to df schema")),
+        name: table_name.into(),
+        location: "".to_string(),
+        file_type: "".to_string(),
+        table_partition_cols: vec![],
+        if_not_exists: false,
+        definition: None,
+        order_exprs: vec![],
+        unbounded: false,
+        options: common::get_pg_params(port),
+        constraints: Constraints::empty(),
+        column_defaults: HashMap::new(),
+        temporary: false,
+    };
+
+    let table_provider = factory
+        .create(&ctx.state(), &cmd)
+        .await
+        .expect("table provider created");
+
+    // Create 8 records across multiple batches, should stop at 5
+    let batches = vec![
+        RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![Arc::new(arrow::array::Int32Array::from(vec![1, 2]))],
+        )
+        .expect("batch created"),
+        RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![Arc::new(arrow::array::Int32Array::from(vec![3, 4]))],
+        )
+        .expect("batch created"),
+        RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![Arc::new(arrow::array::Int32Array::from(vec![5, 6, 7, 8]))],
+        )
+        .expect("batch created"),
+    ];
+
+    let mem_exec = MemorySourceConfig::try_new_exec(&[batches], Arc::clone(&schema), None)
+        .expect("memory exec created");
+
+    let insert_plan = table_provider
+        .insert_into(&ctx.state(), mem_exec, InsertOp::Append)
+        .await
+        .expect("insert plan created");
+
+    let result = collect(insert_plan, ctx.task_ctx())
+        .await
+        .expect("insert done");
+
+    // Should return exactly 5 rows inserted
+    let count_array = result[0].column(0).as_any().downcast_ref::<arrow::array::UInt64Array>().unwrap();
+    assert_eq!(count_array.value(0), 5);
+
+    // Verify exactly 5 records were inserted
+    ctx.register_table(table_name, table_provider)
+        .expect("table registered");
+    
+    let df = ctx.sql(&format!("SELECT COUNT(*) FROM {table_name}")).await.expect("count query");
+    let count_result = df.collect().await.expect("count result");
+    let count_val = count_result[0].column(0).as_any().downcast_ref::<arrow::array::Int64Array>().unwrap().value(0);
+    assert_eq!(count_val, 5);
+}
