@@ -1,6 +1,6 @@
 use std::any::Any;
-use std::collections::HashSet;
 use std::sync::Arc;
+use std::collections::HashSet;
 
 use arrow::array::RecordBatch;
 use arrow_schema::{DataType, Field};

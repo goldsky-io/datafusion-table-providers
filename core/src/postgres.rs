@@ -178,8 +178,8 @@ impl PostgresTableFactory {
         );
 
         let default_write_config = write::PostgresWriteConfig {
-            batch_flush_interval: Duration::from_secs(1),
-            batch_size: 1_000_000,
+            batch_flush_interval: Duration::from_millis(1000),
+            batch_size: 100,
             num_records_before_stop: None,
         };
 
