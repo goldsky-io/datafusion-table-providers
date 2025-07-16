@@ -32,6 +32,16 @@ pub struct PostgresWriteConfig {
     pub num_records_before_stop: Option<u64>,
 }
 
+impl Default for PostgresWriteConfig {
+    fn default() -> Self {
+        Self {
+            batch_flush_interval: Duration::from_secs(1),
+            batch_size: 100,
+            num_records_before_stop: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct PostgresTableWriter {
     pub read_provider: Arc<dyn TableProvider>,

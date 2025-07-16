@@ -31,7 +31,7 @@ use datafusion::{
 };
 use postgres_native_tls::MakeTlsConnector;
 use snafu::prelude::*;
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc};
 
 use crate::util::{
     self,
@@ -177,11 +177,7 @@ impl PostgresTableFactory {
             Constraints::empty(),
         );
 
-        let default_write_config = write::PostgresWriteConfig {
-            batch_flush_interval: Duration::from_millis(1000),
-            batch_size: 100,
-            num_records_before_stop: None,
-        };
+        let default_write_config = write::PostgresWriteConfig::default();
 
         Ok(PostgresTableWriter::create(
             read_provider,
@@ -318,11 +314,7 @@ impl TableProviderFactory for PostgresTableProviderFactory {
             .config()
             .get_extension::<write::PostgresWriteConfig>()
             .map(|ext| (*ext).clone())
-            .unwrap_or_else(|| write::PostgresWriteConfig {
-                batch_flush_interval: Duration::from_secs(1),
-                batch_size: 1_000_000,
-                num_records_before_stop: None,
-            });
+            .unwrap_or_default();
 
         Ok(PostgresTableWriter::create(
             read_provider,
