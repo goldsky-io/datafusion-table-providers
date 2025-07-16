@@ -31,7 +31,7 @@ use datafusion::{
 };
 use postgres_native_tls::MakeTlsConnector;
 use snafu::prelude::*;
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc};
 
 use crate::util::{
     self,
@@ -123,6 +123,11 @@ pub enum Error {
     #[snafu(display("Error parsing on_conflict: {source}"))]
     UnableToParseOnConflict { source: on_conflict::Error },
 
+    #[snafu(display(
+        "Failed to create '{table_name}': creating a table with a schema is not supported"
+    ))]
+    TableWithSchemaCreationNotSupported { table_name: String },
+
     #[snafu(display("Schema validation error: the provided data schema does not match the expected table schema: '{table_name}'"))]
     SchemaValidationError { table_name: String },
 }
@@ -177,18 +182,7 @@ impl PostgresTableFactory {
             Constraints::empty(),
         );
 
-        let default_write_config = write::PostgresWriteConfig {
-            batch_flush_interval: Duration::from_millis(1000),
-            batch_size: 100,
-            num_records_before_stop: None,
-        };
-
-        Ok(PostgresTableWriter::create(
-            read_provider,
-            postgres,
-            None,
-            default_write_config,
-        ))
+        Ok(PostgresTableWriter::create(read_provider, postgres, None))
     }
 }
 
@@ -212,9 +206,17 @@ impl Default for PostgresTableProviderFactory {
 impl TableProviderFactory for PostgresTableProviderFactory {
     async fn create(
         &self,
-        state: &dyn Session,
+        _state: &dyn Session,
         cmd: &CreateExternalTable,
     ) -> DataFusionResult<Arc<dyn TableProvider>> {
+        if cmd.name.schema().is_some() {
+            TableWithSchemaCreationNotSupportedSnafu {
+                table_name: cmd.name.to_string(),
+            }
+            .fail()
+            .map_err(to_datafusion_error)?;
+        }
+
         let name = cmd.name.clone();
         let mut options = cmd.options.clone();
         let schema: Schema = cmd.schema.as_ref().into();
@@ -313,22 +315,10 @@ impl TableProviderFactory for PostgresTableProviderFactory {
         #[cfg(feature = "postgres-federation")]
         let read_provider = Arc::new(read_provider.create_federated_table_provider()?);
 
-        // Extract PostgresWriteConfig from session or use defaults
-        let write_config = state
-            .config()
-            .get_extension::<write::PostgresWriteConfig>()
-            .map(|ext| (*ext).clone())
-            .unwrap_or_else(|| write::PostgresWriteConfig {
-                batch_flush_interval: Duration::from_secs(1),
-                batch_size: 1_000_000,
-                num_records_before_stop: None,
-            });
-
         Ok(PostgresTableWriter::create(
             read_provider,
             postgres,
             on_conflict,
-            write_config,
         ))
     }
 }
@@ -464,25 +454,11 @@ impl Postgres {
         transaction: &Transaction<'_>,
         primary_keys: Vec<String>,
     ) -> Result<()> {
-        tracing::info!("Creating table: {:?}", self.table);
-
-        // Create schema if it doesn't exist
-        if let Some(schema_name) = self.table.schema() {
-            let create_schema_stmt = format!("CREATE SCHEMA IF NOT EXISTS {}", schema_name);
-            tracing::info!("Creating schema: {}", create_schema_stmt);
-            transaction
-                .execute(&create_schema_stmt, &[])
-                .await
-                .context(UnableToCreatePostgresTableSnafu)?;
-        }
-
-        let create_table_statement = CreateTableBuilder::new(schema, self.table.table())
-            .schema_name(self.table.schema().map(|s| s.to_string()))
-            .primary_keys(primary_keys);
+        let create_table_statement =
+            CreateTableBuilder::new(schema, self.table.table()).primary_keys(primary_keys);
         let create_stmts = create_table_statement.build_postgres();
 
         for create_stmt in create_stmts {
-            tracing::info!("Executing CREATE TABLE statement: {}", create_stmt);
             transaction
                 .execute(&create_stmt, &[])
                 .await
@@ -498,13 +474,7 @@ impl Postgres {
         columns: Vec<&str>,
         unique: bool,
     ) -> Result<()> {
-        let table_name = if let Some(schema_name) = self.table.schema() {
-            format!("{}.{}", schema_name, self.table.table())
-        } else {
-            self.table.table().to_string()
-        };
-
-        let mut index_builder = IndexBuilder::new(&table_name, columns);
+        let mut index_builder = IndexBuilder::new(self.table.table(), columns);
         if unique {
             index_builder = index_builder.unique();
         }
