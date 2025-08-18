@@ -1,6 +1,4 @@
-use crate::util::{
-    constraints, on_conflict::OnConflict, retriable_error::check_and_mark_retriable_error,
-};
+use std::{any::Any, fmt, sync::Arc, time::Duration};
 use arrow::datatypes::SchemaRef;
 use arrow_schema::{DataType, Field, Schema};
 use async_trait::async_trait;
@@ -17,7 +15,10 @@ use datafusion::{
 };
 use futures::StreamExt;
 use snafu::prelude::*;
-use std::{any::Any, fmt, sync::Arc, time::Duration};
+
+use crate::util::{
+    constraints, on_conflict::OnConflict, retriable_error::check_and_mark_retriable_error,
+};
 use streamling_telemetry::{PipelineMetricMetadata, TelemetryDataSink};
 
 use crate::postgres::Postgres;
