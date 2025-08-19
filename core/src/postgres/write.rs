@@ -1,4 +1,5 @@
 use std::{any::Any, fmt, sync::Arc, time::Duration};
+
 use arrow::datatypes::SchemaRef;
 use arrow_schema::{DataType, Field, Schema};
 use async_trait::async_trait;
