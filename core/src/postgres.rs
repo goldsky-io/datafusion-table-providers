@@ -190,12 +190,14 @@ impl PostgresTableFactory {
 }
 
 #[derive(Debug)]
-pub struct PostgresTableProviderFactory;
+pub struct PostgresTableProviderFactory {
+    metric_metadata: Option<PipelineMetricMetadata>
+}
 
 impl PostgresTableProviderFactory {
     #[must_use]
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(metric_metadata: Option<PipelineMetricMetadata>) -> Self {
+        Self {metric_metadata}
     }
 }
 
@@ -317,15 +319,12 @@ impl TableProviderFactory for PostgresTableProviderFactory {
             .map(|ext| (*ext).clone())
             .unwrap_or_default();
         
-        let metric_metadata = state.config()
-            .get_extension::<PipelineMetricMetadata>()
-            .map(|ext| (*ext).clone());
         Ok(PostgresTableWriter::create(
             read_provider,
             postgres,
             on_conflict,
             write_config,
-            metric_metadata,
+            self.metric_metadata.clone(),
         ))
     }
 }
