@@ -36,7 +36,7 @@ async fn arrow_postgres_round_trip(
     source_schema: SchemaRef,
     table_name: &str,
 ) {
-    let factory = PostgresTableProviderFactory::new();
+    let factory = PostgresTableProviderFactory::new(None);
     let ctx = SessionContext::new();
     let cmd = CreateExternalTable {
         schema: Arc::new(arrow_record.schema().to_dfschema().expect("to df schema")),
@@ -410,7 +410,7 @@ async fn test_postgres_num_records_before_stop(
         start_container(&mut container_manager).await;
     }
 
-    let factory = PostgresTableProviderFactory::new();
+    let factory = PostgresTableProviderFactory::new(None);
 
     let write_config = PostgresWriteConfig {
         batch_flush_interval: Duration::from_secs(1),
