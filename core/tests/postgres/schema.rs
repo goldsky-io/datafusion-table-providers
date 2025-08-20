@@ -47,7 +47,7 @@ async fn test_postgres_schema_inference() {
         .await
         .expect("Postgres container to start");
 
-    let factory = PostgresTableProviderFactory::new(None);
+    let factory = PostgresTableProviderFactory::new();
     let ctx = SessionContext::new();
     let table_name = "test_table";
     let schema = get_schema();

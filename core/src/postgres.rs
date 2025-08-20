@@ -195,8 +195,14 @@ pub struct PostgresTableProviderFactory {
 }
 
 impl PostgresTableProviderFactory {
+
     #[must_use]
-    pub fn new(metric_metadata: Option<PipelineMetricMetadata>) -> Self {
+    pub fn new() -> Self {
+        Self::new_with_telemetry(None)
+    }
+    
+    #[must_use]
+    pub fn new_with_telemetry(metric_metadata: Option<PipelineMetricMetadata>) -> Self {
         Self {metric_metadata}
     }
 }
