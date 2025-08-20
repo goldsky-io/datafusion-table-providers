@@ -198,12 +198,12 @@ impl PostgresTableProviderFactory {
 
     #[must_use]
     pub fn new() -> Self {
-        Self::new_with_telemetry(None)
+        Self{metric_metadata: None}
     }
-    
+
     #[must_use]
-    pub fn new_with_telemetry(metric_metadata: Option<PipelineMetricMetadata>) -> Self {
-        Self {metric_metadata}
+    pub fn new_with_telemetry(metric_metadata: PipelineMetricMetadata) -> Self {
+        Self {metric_metadata: Some(metric_metadata)}
     }
 }
 
@@ -324,7 +324,7 @@ impl TableProviderFactory for PostgresTableProviderFactory {
             .get_extension::<write::PostgresWriteConfig>()
             .map(|ext| (*ext).clone())
             .unwrap_or_default();
-        
+
         Ok(PostgresTableWriter::create(
             read_provider,
             postgres,
