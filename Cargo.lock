@@ -5757,7 +5757,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 [[package]]
 name = "streamling-config"
 version = "0.1.0"
-source = "git+https://github.com/goldsky-io/streamling.git?branch=extract-telemetry#ad174bc5dbf4f95de2dea24f7b47da98dd5258ad"
+source = "git+https://github.com/goldsky-io/streamling.git?branch=main#f8bfcc1f9aef16cd3247f50eb3ca1cad4729d80e"
 dependencies = [
  "config",
  "percent-encoding",
@@ -5769,7 +5769,7 @@ dependencies = [
 [[package]]
 name = "streamling-telemetry"
 version = "0.1.0"
-source = "git+https://github.com/goldsky-io/streamling.git?branch=extract-telemetry#ad174bc5dbf4f95de2dea24f7b47da98dd5258ad"
+source = "git+https://github.com/goldsky-io/streamling.git?branch=main#f8bfcc1f9aef16cd3247f50eb3ca1cad4729d80e"
 dependencies = [
  "arrow-schema",
  "async-trait",
