@@ -23,6 +23,7 @@ use crate::util::{
 };
 use streamling_telemetry::{PipelineMetricMetadata, TelemetryDataSink};
 use streamling_telemetry::operators::telemetry::{create_time_from_duration, dispatch_metric_data, MetricData};
+use tracing::debug;
 use crate::postgres::Postgres;
 
 use super::to_datafusion_error;
@@ -314,6 +315,7 @@ impl DataSink for PostgresDataSink {
                 let count = Count::new();
                 count.add(buffer_row_count);
                 self.metric_metadata.clone().map(|md| {
+                    debug!("Dispatching metric data");
                     dispatch_metric_data(
                         MetricData::new(
                             vec!(
