@@ -35,7 +35,7 @@ datafusion-federation = { workspace = true, features = [
   "sql",
 ], optional = true }
 datafusion-physical-expr = { workspace = true, optional = true }
-datafusion-physical-plan = { workspace = true, optional = true }
+datafusion-physical-plan = { workspace = true }
 datafusion-proto = { workspace = true, optional = true }
 duckdb = { workspace = true, features = [
   "bundled",
