@@ -312,18 +312,7 @@ impl DataSink for PostgresDataSink {
                     .await
                     .context(super::UnableToCommitPostgresTransactionSnafu)
                     .map_err(to_datafusion_error)?;
-                let count = Count::new();
-                count.add(buffer_row_count);
-                self.metric_metadata.clone().map(|md| {
-                    debug!("Dispatching metric data");
-                    dispatch_metric_data(
-                        MetricData::new(
-                            vec!(
-                                MetricValue::OutputRows(count),
-                                MetricValue::ElapsedCompute(create_time_from_duration(start_at.elapsed()))
-                            ),
-                            md));
-                });
+                self.dispatch_count_and_latency_metrics(buffer_row_count, start_at);
                 num_rows += buffer_row_count as u64;
                 batches_buffer.clear();
                 buffer_row_count = 0;
@@ -361,15 +350,14 @@ impl DataSink for PostgresDataSink {
                     .await
                     .map_err(to_datafusion_error)?;
             }
-
+            let start_at = Instant::now();
             tx.commit()
                 .await
                 .context(super::UnableToCommitPostgresTransactionSnafu)
                 .map_err(to_datafusion_error)?;
-
+            self.dispatch_count_and_latency_metrics(buffer_row_count, start_at);
             num_rows += buffer_row_count as u64;
             tracing::debug!("flushed final {} rows", num_rows);
-
             // Ensure we don't exceed the limit even in final flush
             if let Some(max_records) = self.num_records_before_stop {
                 assert_eq!(num_rows, max_records);
@@ -401,6 +389,20 @@ impl PostgresDataSink {
             num_records_before_stop,
             metric_metadata
         }
+    }
+
+    fn dispatch_count_and_latency_metrics(&self, mut buffer_row_count: usize, start_at: Instant) {
+        let count = Count::new();
+        count.add(buffer_row_count);
+        self.metric_metadata.clone().map(|md| {
+            dispatch_metric_data(
+                MetricData::new(
+                    vec!(
+                        MetricValue::OutputRows(count),
+                        MetricValue::ElapsedCompute(create_time_from_duration(start_at.elapsed()))
+                    ),
+                    md));
+        });
     }
 }
 
