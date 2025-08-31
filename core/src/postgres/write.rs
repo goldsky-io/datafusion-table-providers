@@ -1,5 +1,5 @@
 use std::{any::Any, fmt, sync::Arc, time::Duration};
-
+use std::time::Instant;
 use arrow::datatypes::SchemaRef;
 use arrow_schema::{DataType, Field, Schema};
 use async_trait::async_trait;
@@ -14,6 +14,7 @@ use datafusion::{
     logical_expr::{dml::InsertOp, Expr},
     physical_plan::{metrics::MetricsSet, DisplayAs, DisplayFormatType, ExecutionPlan},
 };
+use datafusion_physical_plan::metrics::{Count, MetricValue};
 use futures::StreamExt;
 use snafu::prelude::*;
 
@@ -21,7 +22,8 @@ use crate::util::{
     constraints, on_conflict::OnConflict, retriable_error::check_and_mark_retriable_error,
 };
 use streamling_telemetry::{PipelineMetricMetadata, TelemetryDataSink};
-
+use streamling_telemetry::operators::telemetry::{create_time_from_duration, dispatch_metric_data, MetricData};
+use tracing::debug;
 use crate::postgres::Postgres;
 
 use super::to_datafusion_error;
@@ -124,6 +126,7 @@ impl TableProvider for PostgresTableWriter {
             batch_flush_interval,
             batch_size,
             num_records_before_stop,
+            self.metric_metadata.clone()
         ));
         let execution_plan: Arc<dyn DataSink> = match &self.metric_metadata {
             None => postgres_sink,
@@ -142,6 +145,7 @@ struct PostgresDataSink {
     batch_flush_interval: Duration,
     batch_size: usize,
     num_records_before_stop: Option<u64>,
+    metric_metadata: Option<PipelineMetricMetadata>
 }
 
 #[async_trait]
@@ -277,6 +281,7 @@ impl DataSink for PostgresDataSink {
                 buffer_row_count >= batch_flush_size || last_flush_time.elapsed() >= flush_interval;
 
             if should_flush {
+                let tx_start_at = Instant::now();
                 let tx = postgres_conn
                     .conn
                     .transaction()
@@ -303,12 +308,11 @@ impl DataSink for PostgresDataSink {
                         .await
                         .map_err(to_datafusion_error)?;
                 }
-
                 tx.commit()
                     .await
                     .context(super::UnableToCommitPostgresTransactionSnafu)
                     .map_err(to_datafusion_error)?;
-
+                self.dispatch_count_and_latency_metrics(buffer_row_count, tx_start_at);
                 num_rows += buffer_row_count as u64;
                 batches_buffer.clear();
                 buffer_row_count = 0;
@@ -325,6 +329,7 @@ impl DataSink for PostgresDataSink {
 
         // Flush any remaining batches
         if !batches_buffer.is_empty() {
+            let tx_start_at = Instant::now();
             let tx = postgres_conn
                 .conn
                 .transaction()
@@ -346,15 +351,13 @@ impl DataSink for PostgresDataSink {
                     .await
                     .map_err(to_datafusion_error)?;
             }
-
             tx.commit()
                 .await
                 .context(super::UnableToCommitPostgresTransactionSnafu)
                 .map_err(to_datafusion_error)?;
-
+            self.dispatch_count_and_latency_metrics(buffer_row_count, tx_start_at);
             num_rows += buffer_row_count as u64;
             tracing::debug!("flushed final {} rows", num_rows);
-
             // Ensure we don't exceed the limit even in final flush
             if let Some(max_records) = self.num_records_before_stop {
                 assert_eq!(num_rows, max_records);
@@ -374,6 +377,7 @@ impl PostgresDataSink {
         batch_flush_interval: Duration,
         batch_size: usize,
         num_records_before_stop: Option<u64>,
+        metric_metadata: Option<PipelineMetricMetadata>
     ) -> Self {
         Self {
             postgres,
@@ -383,7 +387,22 @@ impl PostgresDataSink {
             batch_flush_interval,
             batch_size,
             num_records_before_stop,
+            metric_metadata
         }
+    }
+
+    fn dispatch_count_and_latency_metrics(&self, buffer_row_count: usize, start_at: Instant) {
+        let count = Count::new();
+        count.add(buffer_row_count);
+        self.metric_metadata.clone().map(|md| {
+            dispatch_metric_data(
+                MetricData::new(
+                    vec!(
+                        MetricValue::OutputRows(count),
+                        MetricValue::ElapsedCompute(create_time_from_duration(start_at.elapsed()))
+                    ),
+                    md));
+        });
     }
 }
 
