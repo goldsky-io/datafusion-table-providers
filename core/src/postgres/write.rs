@@ -14,7 +14,7 @@ use datafusion::{
     logical_expr::{dml::InsertOp, Expr},
     physical_plan::{metrics::MetricsSet, DisplayAs, DisplayFormatType, ExecutionPlan},
 };
-use datafusion_physical_plan::metrics::{Count, MetricValue};
+use datafusion_physical_plan::metrics::MetricValue;
 use futures::StreamExt;
 use snafu::prelude::*;
 
@@ -22,8 +22,7 @@ use crate::util::{
     constraints, on_conflict::OnConflict, retriable_error::check_and_mark_retriable_error,
 };
 use streamling_telemetry::{PipelineMetricMetadata, TelemetryDataSink};
-use streamling_telemetry::operators::telemetry::{create_time_from_duration, dispatch_metric_data, MetricData};
-use tracing::debug;
+use streamling_telemetry::operators::telemetry::{create_time_from_duration, create_count_with_value, dispatch_metric_data, MetricData};
 use crate::postgres::Postgres;
 
 use super::to_datafusion_error;
@@ -392,13 +391,11 @@ impl PostgresDataSink {
     }
 
     fn dispatch_count_and_latency_metrics(&self, buffer_row_count: usize, start_at: Instant) {
-        let count = Count::new();
-        count.add(buffer_row_count);
         self.metric_metadata.clone().map(|md| {
             dispatch_metric_data(
                 MetricData::new(
                     vec!(
-                        MetricValue::OutputRows(count),
+                        MetricValue::OutputRows(create_count_with_value(buffer_row_count)),
                         MetricValue::ElapsedCompute(create_time_from_duration(start_at.elapsed()))
                     ),
                     md));
