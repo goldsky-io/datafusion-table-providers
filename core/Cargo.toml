@@ -1,6 +1,6 @@
 [package]
 name = "datafusion-table-providers"
-version = { workspace = true} 
+version = { workspace = true }
 readme = { workspace = true }
 edition = { workspace = true }
 repository = { workspace = true }
@@ -10,6 +10,7 @@ description = { workspace = true }
 [dependencies]
 streamling-telemetry = { git = "https://github.com/goldsky-io/streamling.git", branch="main" }
 arrow = { workspace = true }
+arrow-ipc = { workspace = true, optional = true }
 arrow-array = { workspace = true, optional = true }
 arrow-flight = { workspace = true, optional = true, features = [
   "flight-sql-experimental",
@@ -28,6 +29,7 @@ byteorder = "1.5.0"
 bytes = { version = "1.7.1", optional = true }
 byte-unit = { version = "5.1.4", optional = true }
 chrono = "0.4"
+clickhouse = { version = "0.13.3", optional = true }
 dashmap = "6.1.0"
 datafusion = { workspace = true, default-features = false }
 datafusion-expr = { workspace = true, optional = true }
@@ -35,7 +37,7 @@ datafusion-federation = { workspace = true, features = [
   "sql",
 ], optional = true }
 datafusion-physical-expr = { workspace = true, optional = true }
-datafusion-physical-plan = { workspace = true }
+datafusion-physical-plan = { workspace = true, optional = true }
 datafusion-proto = { workspace = true, optional = true }
 duckdb = { workspace = true, features = [
   "bundled",
@@ -62,8 +64,9 @@ num-bigint = "0.4"
 odbc-api = { version = "13.0", optional = true }
 pem = { version = "3.0.4", optional = true }
 postgres-native-tls = { version = "0.5.0", optional = true }
-prost = { version = "0.14", optional = true }
+prost = { version = "0.14.1", optional = true }
 rand = { version = "0.9" }
+regex = { version = "1" }
 r2d2 = { version = "0.8", optional = true }
 rusqlite = { version = "0.32", optional = true }
 sea-query = { version = "0.32", features = [
@@ -81,7 +84,7 @@ serde_json = "1.0"
 sha2 = "0.10"
 snafu = "0.8"
 time = "0.3"
-tokio = { version = "1.45", features = ["macros", "fs"] }
+tokio = { version = "1.46", features = ["macros", "fs"] }
 tokio-postgres = { version = "0.7", features = [
   "with-chrono-0_4",
   "with-uuid-1",
@@ -96,23 +99,25 @@ tonic = { version = "0.12", optional = true, features = [
 tracing = "0.1"
 trust-dns-resolver = "0.23.2"
 url = "2.5.4"
-uuid = { version = "1.17", optional = true }
+uuid = { version = "1.18", optional = true }
 
 [dev-dependencies]
 anyhow = "1.0"
 bollard = "0.19"
 geozero = { version = "0.14.0", features = ["with-wkb"] }
 insta = { version = "1.43.1", features = ["filters"] }
-prost = { version = "0.14" }
+prost = { version = "0.14.1" }
 rand = "0.9"
 reqwest = "0.12"
-rstest = "0.25.0"
+rstest = "0.26.1"
 test-log = { version = "0.2", features = ["trace"] }
 tokio-stream = { version = "0.1", features = ["net"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tempfile = "3.20.0"
 
 [features]
+clickhouse = ["dep:clickhouse", "arrow-ipc/lz4", "dep:async-stream"]
+clickhouse-federation = ["clickhouse", "federation"]
 duckdb = [
   "dep:duckdb",
   "dep:r2d2",
@@ -151,6 +156,13 @@ sqlite = ["dep:rusqlite", "dep:tokio-rusqlite", "dep:arrow-schema"]
 sqlite-federation = ["sqlite", "federation"]
 sqlite-bundled = ["sqlite", "rusqlite/bundled"]
 
+# docs.rs-specific configuration
+[package.metadata.docs.rs]
+# document all features
+all-features = true
+# defines the configuration attribute `docsrs`
+rustdoc-args = ["--cfg", "docsrs"]
+
 [[example]]
 name = "odbc_sqlite"
 path = "examples/odbc_sqlite.rs"
@@ -165,3 +177,8 @@ required-features = ["flight"]
 name = "sqlite"
 path = "examples/sqlite.rs"
 required-features = ["sqlite"]
+
+[[example]]
+name = "clickhouse"
+path = "examples/clickhouse.rs"
+required-features = ["clickhouse"]

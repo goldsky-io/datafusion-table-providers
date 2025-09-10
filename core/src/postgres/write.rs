@@ -12,9 +12,8 @@ use datafusion::{
     },
     execution::{SendableRecordBatchStream, TaskContext},
     logical_expr::{dml::InsertOp, Expr},
-    physical_plan::{metrics::MetricsSet, DisplayAs, DisplayFormatType, ExecutionPlan},
+    physical_plan::{metrics::MetricsSet, DisplayAs, DisplayFormatType, ExecutionPlan, metrics::MetricValue},
 };
-use datafusion_physical_plan::metrics::MetricValue;
 use futures::StreamExt;
 use snafu::prelude::*;
 
@@ -307,15 +306,17 @@ impl DataSink for PostgresDataSink {
                         .await
                         .map_err(to_datafusion_error)?;
                 }
+
                 tx.commit()
                     .await
                     .context(super::UnableToCommitPostgresTransactionSnafu)
                     .map_err(to_datafusion_error)?;
-                self.dispatch_count_and_latency_metrics(buffer_row_count, tx_start_at);
+
                 num_rows += buffer_row_count as u64;
+                self.dispatch_count_and_latency_metrics(buffer_row_count, tx_start_at);
                 batches_buffer.clear();
                 buffer_row_count = 0;
-                last_flush_time = std::time::Instant::now();
+                last_flush_time = Instant::now();
 
                 // Check if we've reached the record limit after flushing
                 if let Some(max_records) = self.num_records_before_stop {
@@ -350,6 +351,7 @@ impl DataSink for PostgresDataSink {
                     .await
                     .map_err(to_datafusion_error)?;
             }
+
             tx.commit()
                 .await
                 .context(super::UnableToCommitPostgresTransactionSnafu)
@@ -357,6 +359,7 @@ impl DataSink for PostgresDataSink {
             self.dispatch_count_and_latency_metrics(buffer_row_count, tx_start_at);
             num_rows += buffer_row_count as u64;
             tracing::debug!("flushed final {} rows", num_rows);
+
             // Ensure we don't exceed the limit even in final flush
             if let Some(max_records) = self.num_records_before_stop {
                 assert_eq!(num_rows, max_records);

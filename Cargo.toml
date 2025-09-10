@@ -16,14 +16,11 @@
 # under the License.
 
 [workspace]
-members = [
-    "core",
-    "python",
-]
+members = ["core", "python"]
 resolver = "2"
 
 [workspace.package]
-version = "0.5.0"
+version = "0.7.0"
 readme = "README.md"
 edition = "2021"
 repository = "https://github.com/datafusion-contrib/datafusion-table-providers"
@@ -32,20 +29,21 @@ description = "Extend the capabilities of DataFusion to support additional data 
 
 [workspace.dependencies]
 arrow = "55.0.0"
-arrow-array = { version = "55.0.0" }
+arrow-array = { version = "55.2.0" }
 arrow-flight = { version = "55.0.0", features = [
   "flight-sql-experimental",
   "tls",
 ] }
-arrow-schema = { version = "55.0.0", features = ["serde"] }
+arrow-ipc = { version = "55.0.0" }
+arrow-schema = { version = "55.2.0", features = ["serde"] }
 arrow-json = "55.0.0"
 arrow-odbc = { version = "16.0.2" }
-datafusion = { version = "47", default-features = false }
-datafusion-expr = { version = "47" }
-datafusion-federation = { version = "=0.4.2" }
-datafusion-ffi = { version = "47" }
-datafusion-proto = { version = "47" }
-datafusion-physical-expr = { version = "47" }
-datafusion-physical-plan = { version = "47" }
+datafusion = { version = "49", default-features = false }
+datafusion-expr = { version = "49" }
+datafusion-federation = { version = "0.4.7" }
+datafusion-ffi = { version = "49" }
+datafusion-proto = { version = "49" }
+datafusion-physical-expr = { version = "49" }
+datafusion-physical-plan = { version = "49" }
 datafusion-table-providers = { path = "core" }
 duckdb = { version = "=1.3.0", package = "spiceai_duckdb_fork" } # Forked to add support for duckdb_scan_arrow, pending: https://github.com/duckdb/duckdb-rs/pull/488

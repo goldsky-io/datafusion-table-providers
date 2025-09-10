@@ -174,7 +174,7 @@ impl PostgresTableFactory {
             table_reference,
             Arc::clone(&self.pool),
             schema,
-            Constraints::empty(),
+            Constraints::default(),
         );
 
         let default_write_config = write::PostgresWriteConfig::default();
