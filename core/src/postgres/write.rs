@@ -315,7 +315,7 @@ impl DataSink for PostgresDataSink {
                     .map_err(to_datafusion_error)?;
 
                 num_rows += buffer_row_count as u64;
-                self.dispatch_count_and_latency_metrics(buffer_row_count, tx_start_at, metrics_recorder);
+                self.dispatch_count_and_latency_metrics(buffer_row_count, tx_start_at, metrics_recorder.clone());
                 batches_buffer.clear();
                 buffer_row_count = 0;
                 last_flush_time = Instant::now();
@@ -358,7 +358,7 @@ impl DataSink for PostgresDataSink {
                 .await
                 .context(super::UnableToCommitPostgresTransactionSnafu)
                 .map_err(to_datafusion_error)?;
-            self.dispatch_count_and_latency_metrics(buffer_row_count, tx_start_at, metrics_recorder);
+            self.dispatch_count_and_latency_metrics(buffer_row_count, tx_start_at, metrics_recorder.clone());
             num_rows += buffer_row_count as u64;
             tracing::debug!("flushed final {} rows", num_rows);
 
