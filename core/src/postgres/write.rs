@@ -12,7 +12,7 @@ use datafusion::{
     },
     execution::{SendableRecordBatchStream, TaskContext},
     logical_expr::{dml::InsertOp, Expr},
-    physical_plan::{metrics::MetricsSet, DisplayAs, DisplayFormatType, ExecutionPlan, metrics::MetricValue},
+    physical_plan::{metrics::MetricsSet, DisplayAs, DisplayFormatType, ExecutionPlan},
 };
 use futures::StreamExt;
 use snafu::prelude::*;
@@ -20,8 +20,9 @@ use snafu::prelude::*;
 use crate::util::{
     constraints, on_conflict::OnConflict, retriable_error::check_and_mark_retriable_error,
 };
-use streamling_telemetry::{PipelineMetricMetadata, TelemetryDataSink};
-use streamling_telemetry::operators::telemetry::{create_time_from_duration, create_count_with_value, dispatch_metric_data, MetricData};
+use streamling_telemetry::{TelemetryDataSink};
+use streamling_telemetry::operators::dispatch::{get_metrics_recorder,MetricsRecorder};
+
 use crate::postgres::Postgres;
 
 use super::to_datafusion_error;
@@ -49,7 +50,7 @@ pub struct PostgresTableWriter {
     postgres: Arc<Postgres>,
     on_conflict: Option<OnConflict>,
     pub write_config: PostgresWriteConfig,
-    metric_metadata: Option<PipelineMetricMetadata>,
+    metric_metadata_id: Option<String>,
 }
 
 impl PostgresTableWriter {
@@ -58,14 +59,14 @@ impl PostgresTableWriter {
         postgres: Postgres,
         on_conflict: Option<OnConflict>,
         write_config: PostgresWriteConfig,
-        metric_metadata: Option<PipelineMetricMetadata>,
+        metric_metadata: Option<String>,
     ) -> Arc<Self> {
         Arc::new(Self {
             read_provider,
             postgres: Arc::new(postgres),
             on_conflict,
             write_config,
-            metric_metadata,
+            metric_metadata_id: metric_metadata,
         })
     }
 
@@ -124,11 +125,11 @@ impl TableProvider for PostgresTableWriter {
             batch_flush_interval,
             batch_size,
             num_records_before_stop,
-            self.metric_metadata.clone()
+            self.metric_metadata_id.clone()
         ));
-        let execution_plan: Arc<dyn DataSink> = match &self.metric_metadata {
+        let execution_plan: Arc<dyn DataSink> = match &self.metric_metadata_id {
             None => postgres_sink,
-            Some(metadata) => Arc::new(TelemetryDataSink::new(postgres_sink, metadata.clone())),
+            Some(metadata_id) => Arc::new(TelemetryDataSink::new(postgres_sink, String::from(metadata_id))),
         };
         Ok(Arc::new(DataSinkExec::new(input, execution_plan, None)) as _)
     }
@@ -143,7 +144,7 @@ struct PostgresDataSink {
     batch_flush_interval: Duration,
     batch_size: usize,
     num_records_before_stop: Option<u64>,
-    metric_metadata: Option<PipelineMetricMetadata>
+    metric_metadata_id: Option<String>
 }
 
 #[async_trait]
@@ -210,6 +211,7 @@ impl DataSink for PostgresDataSink {
         let mut batches_buffer = Vec::new();
         let mut buffer_row_count = 0;
         let mut last_flush_time = std::time::Instant::now();
+        let metrics_recorder = get_metrics_recorder().clone();
 
         while let Some(batch) = data.next().await {
             let batch = batch.map_err(check_and_mark_retriable_error)?;
@@ -313,7 +315,7 @@ impl DataSink for PostgresDataSink {
                     .map_err(to_datafusion_error)?;
 
                 num_rows += buffer_row_count as u64;
-                self.dispatch_count_and_latency_metrics(buffer_row_count, tx_start_at);
+                self.dispatch_count_and_latency_metrics(buffer_row_count, tx_start_at, metrics_recorder.clone());
                 batches_buffer.clear();
                 buffer_row_count = 0;
                 last_flush_time = Instant::now();
@@ -356,7 +358,7 @@ impl DataSink for PostgresDataSink {
                 .await
                 .context(super::UnableToCommitPostgresTransactionSnafu)
                 .map_err(to_datafusion_error)?;
-            self.dispatch_count_and_latency_metrics(buffer_row_count, tx_start_at);
+            self.dispatch_count_and_latency_metrics(buffer_row_count, tx_start_at, metrics_recorder.clone());
             num_rows += buffer_row_count as u64;
             tracing::debug!("flushed final {} rows", num_rows);
 
@@ -379,7 +381,7 @@ impl PostgresDataSink {
         batch_flush_interval: Duration,
         batch_size: usize,
         num_records_before_stop: Option<u64>,
-        metric_metadata: Option<PipelineMetricMetadata>
+        metric_metadata_id: Option<String>
     ) -> Self {
         Self {
             postgres,
@@ -389,20 +391,15 @@ impl PostgresDataSink {
             batch_flush_interval,
             batch_size,
             num_records_before_stop,
-            metric_metadata
+            metric_metadata_id
         }
     }
 
-    fn dispatch_count_and_latency_metrics(&self, buffer_row_count: usize, start_at: Instant) {
-        self.metric_metadata.clone().map(|md| {
-            dispatch_metric_data(
-                MetricData::new(
-                    vec!(
-                        MetricValue::OutputRows(create_count_with_value(buffer_row_count)),
-                        MetricValue::ElapsedCompute(create_time_from_duration(start_at.elapsed()))
-                    ),
-                    md));
-        });
+    fn dispatch_count_and_latency_metrics(&self, buffer_row_count: usize, start_at: Instant, metrics_recorder: Arc<MetricsRecorder>) {
+        if let Some(metric_metadata_id) = self.metric_metadata_id.clone() {
+            metrics_recorder.record_elapsed_compute(start_at.elapsed(), metric_metadata_id.as_str());
+            metrics_recorder.record_output_rows_count(buffer_row_count as u64, metric_metadata_id.as_str());    
+        }
     }
 }
 
