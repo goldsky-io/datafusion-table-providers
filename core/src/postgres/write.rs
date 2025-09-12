@@ -12,7 +12,7 @@ use datafusion::{
     },
     execution::{SendableRecordBatchStream, TaskContext},
     logical_expr::{dml::InsertOp, Expr},
-    physical_plan::{metrics::MetricsSet, DisplayAs, DisplayFormatType, ExecutionPlan, metrics::MetricValue},
+    physical_plan::{metrics::MetricsSet, DisplayAs, DisplayFormatType, ExecutionPlan},
 };
 use futures::StreamExt;
 use snafu::prelude::*;
@@ -21,7 +21,7 @@ use crate::util::{
     constraints, on_conflict::OnConflict, retriable_error::check_and_mark_retriable_error,
 };
 use streamling_telemetry::{TelemetryDataSink};
-use streamling_telemetry::operators::dispatch::{get_metrics_recorder,MetricsRecorder}
+use streamling_telemetry::operators::dispatch::{get_metrics_recorder,MetricsRecorder};
 
 use crate::postgres::Postgres;
 
@@ -129,7 +129,7 @@ impl TableProvider for PostgresTableWriter {
         ));
         let execution_plan: Arc<dyn DataSink> = match &self.metric_metadata_id {
             None => postgres_sink,
-            Some(metadata) => Arc::new(TelemetryDataSink::new(postgres_sink, String::from(metadata))),
+            Some(metadata_id) => Arc::new(TelemetryDataSink::new(postgres_sink, String::from(metadata_id))),
         };
         Ok(Arc::new(DataSinkExec::new(input, execution_plan, None)) as _)
     }
