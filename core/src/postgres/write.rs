@@ -395,7 +395,7 @@ impl PostgresDataSink {
         }
     }
 
-    fn dispatch_count_and_latency_metrics(&self, buffer_row_count: usize, start_at: Instant, metrics_recorder: MetricsRecorder) {
+    fn dispatch_count_and_latency_metrics(&self, buffer_row_count: usize, start_at: Instant, metrics_recorder: Arc<MetricsRecorder>) {
         if let Some(metric_metadata_id) = self.metric_metadata_id.clone() {
             metrics_recorder.record_elapsed_compute(start_at.elapsed(), metric_metadata_id.as_str());
             metrics_recorder.record_output_rows_count(buffer_row_count as u64, metric_metadata_id.as_str());    
