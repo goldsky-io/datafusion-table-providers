@@ -8757,7 +8757,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 [[package]]
 name = "streamling-config"
 version = "0.1.0"
-source = "git+https://github.com/goldsky-io/streamling.git?branch=sap1ens%2Fdynamic-table#c589c2ef6660ad50c9e5c2e10cbf282b1cbaea1e"
+source = "git+https://github.com/goldsky-io/streamling.git?branch=sap1ens%2Fdynamic-table#2d6887284353b48722cc6c0312159654774ea4f5"
 dependencies = [
  "async-trait",
  "config",
@@ -8778,7 +8778,7 @@ dependencies = [
 [[package]]
 name = "streamling-core"
 version = "0.1.0"
-source = "git+https://github.com/goldsky-io/streamling.git?branch=sap1ens%2Fdynamic-table#c589c2ef6660ad50c9e5c2e10cbf282b1cbaea1e"
+source = "git+https://github.com/goldsky-io/streamling.git?branch=sap1ens%2Fdynamic-table#2d6887284353b48722cc6c0312159654774ea4f5"
 dependencies = [
  "abi_stable",
  "apache-avro",
@@ -8842,7 +8842,7 @@ dependencies = [
 [[package]]
 name = "streamling-plugin"
 version = "0.1.0"
-source = "git+https://github.com/goldsky-io/streamling.git?branch=sap1ens%2Fdynamic-table#c589c2ef6660ad50c9e5c2e10cbf282b1cbaea1e"
+source = "git+https://github.com/goldsky-io/streamling.git?branch=sap1ens%2Fdynamic-table#2d6887284353b48722cc6c0312159654774ea4f5"
 dependencies = [
  "abi_stable",
  "arrow",
@@ -8867,7 +8867,7 @@ dependencies = [
 [[package]]
 name = "streamling-plugin-derive"
 version = "0.1.0"
-source = "git+https://github.com/goldsky-io/streamling.git?branch=sap1ens%2Fdynamic-table#c589c2ef6660ad50c9e5c2e10cbf282b1cbaea1e"
+source = "git+https://github.com/goldsky-io/streamling.git?branch=sap1ens%2Fdynamic-table#2d6887284353b48722cc6c0312159654774ea4f5"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -8877,7 +8877,7 @@ dependencies = [
 [[package]]
 name = "streamling-state"
 version = "0.1.0"
-source = "git+https://github.com/goldsky-io/streamling.git?branch=sap1ens%2Fdynamic-table#c589c2ef6660ad50c9e5c2e10cbf282b1cbaea1e"
+source = "git+https://github.com/goldsky-io/streamling.git?branch=sap1ens%2Fdynamic-table#2d6887284353b48722cc6c0312159654774ea4f5"
 dependencies = [
  "async-trait",
  "parking_lot 0.12.4",
@@ -8895,7 +8895,7 @@ dependencies = [
 [[package]]
 name = "streamling-telemetry"
 version = "0.1.0"
-source = "git+https://github.com/goldsky-io/streamling.git?branch=sap1ens%2Fdynamic-table#c589c2ef6660ad50c9e5c2e10cbf282b1cbaea1e"
+source = "git+https://github.com/goldsky-io/streamling.git?branch=sap1ens%2Fdynamic-table#2d6887284353b48722cc6c0312159654774ea4f5"
 dependencies = [
  "arrow-schema",
  "async-trait",
@@ -11562,7 +11562,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
